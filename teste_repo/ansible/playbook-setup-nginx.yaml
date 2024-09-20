@@ -1,0 +1,23 @@
+- hosts: nginx_server
+  tasks:
+    - name: Instalar NGINX
+      apt:
+        name: nginx
+        state: present
+
+    - name: Configurar NGINX como proxy reverso
+      copy:
+        content: |
+          server {
+              listen 81;
+              location / {
+                  proxy_pass http://40.85.177.201:80;  # Substitua com o IP correto do IIS
+              }
+          }
+        dest: /etc/nginx/sites-available/default
+
+    - name: Reiniciar NGINX
+      service:
+        name: nginx
+        state: restarted
+

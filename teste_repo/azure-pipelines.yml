@@ -1,0 +1,130 @@
+trigger:
+  branches:
+    include:
+      - main
+
+stages:
+  - stage: ProvisionarInfraestrutura
+    displayName: 'Provisionamento de Infraestrutura'
+    jobs:
+      - job: ProvisionarInfra
+        displayName: 'Provisionar Infraestrutura com Terraform'
+        pool:
+          name: 'linux'  # Usando o pool Linux
+        steps:
+          - script: |
+              cd terraform  # Ir para o diretório onde estão os arquivos Terraform
+
+              # Verificar e importar o Resource Group se já existir
+              az group show --name rg-myapp --subscription 4e55729a-d0ad-4aab-928e-c88e5dca64f9
+              if [ $? -eq 0 ]; then
+                echo "Grupo de recursos já existe. Importando para o estado do Terraform."
+                terraform init
+                terraform import azurerm_resource_group.rg /subscriptions/4e55729a-d0ad-4aab-928e-c88e5dca64f9/resourceGroups/rg-myapp
+              fi
+
+              # Verificar e importar a Virtual Network se já existir
+              az network vnet show --resource-group rg-myapp --name vnet-myapp --subscription 4e55729a-d0ad-4aab-928e-c88e5dca64f9
+              if [ $? -eq 0 ]; then
+                echo "Virtual Network já existe. Importando para o estado do Terraform."
+                terraform import azurerm_virtual_network.vnet /subscriptions/4e55729a-d0ad-4aab-928e-c88e5dca64f9/resourceGroups/rg-myapp/providers/Microsoft.Network/virtualNetworks/vnet-myapp
+              fi
+
+              # Verificar e importar a Subnet se já existir
+              az network vnet subnet show --resource-group rg-myapp --vnet-name vnet-myapp --name subnet-myapp --subscription 4e55729a-d0ad-4aab-928e-c88e5dca64f9
+              if [ $? -eq 0 ]; then
+                echo "Subnet já existe. Importando para o estado do Terraform."
+                terraform import azurerm_subnet.subnet /subscriptions/4e55729a-d0ad-4aab-928e-c88e5dca64f9/resourceGroups/rg-myapp/providers/Microsoft.Network/virtualNetworks/vnet-myapp/subnets/subnet-myapp
+              fi
+
+              # Verificar e importar o Network Security Group se já existir
+              az network nsg show --resource-group rg-myapp --name nsg-myapp --subscription 4e55729a-d0ad-4aab-928e-c88e5dca64f9
+              if [ $? -eq 0 ]; then
+                echo "Network Security Group já existe. Importando para o estado do Terraform."
+                terraform import azurerm_network_security_group.nsg /subscriptions/4e55729a-d0ad-4aab-928e-c88e5dca64f9/resourceGroups/rg-myapp/providers/Microsoft.Network/networkSecurityGroups/nsg-myapp
+              fi
+
+              # Verificar e importar o Public IP se já existir
+              az network public-ip show --resource-group rg-myapp --name public-ip-myapp --subscription 4e55729a-d0ad-4aab-928e-c88e5dca64f9
+              if [ $? -eq 0 ]; then
+                echo "Public IP já existe. Importando para o estado do Terraform."
+                terraform import azurerm_public_ip.public_ip /subscriptions/4e55729a-d0ad-4aab-928e-c88e5dca64f9/resourceGroups/rg-myapp/providers/Microsoft.Network/publicIPAddresses/public-ip-myapp
+              fi
+
+              # Verificar e importar a Network Interface se já existir
+              az network nic show --resource-group rg-myapp --name nic-myapp --subscription 4e55729a-d0ad-4aab-928e-c88e5dca64f9
+              if [ $? -eq 0 ]; then
+                echo "Network Interface já existe. Importando para o estado do Terraform."
+                terraform import azurerm_network_interface.nic /subscriptions/4e55729a-d0ad-4aab-928e-c88e5dca64f9/resourceGroups/rg-myapp/providers/Microsoft.Network/networkInterfaces/nic-myapp
+              fi
+
+              # Verificar e importar a Virtual Machine se já existir
+              az vm show --resource-group rg-myapp --name vm-myapp --subscription 4e55729a-d0ad-4aab-928e-c88e5dca64f9
+              if [ $? -eq 0 ]; then
+                echo "Máquina Virtual já existe. Importando para o estado do Terraform."
+                terraform import azurerm_windows_virtual_machine.vm /subscriptions/4e55729a-d0ad-4aab-928e-c88e5dca64f9/resourceGroups/rg-myapp/providers/Microsoft.Compute/virtualMachines/vm-myapp
+              fi
+
+              # Executar o Terraform apply após a verificação/importação
+              terraform apply -auto-approve
+            displayName: 'Verificar e Executar Terraform no diretório correto'
+
+  - stage: Build
+    displayName: 'Build da Aplicação'
+    dependsOn: ProvisionarInfraestrutura
+    jobs:
+      - job: BuildJob
+        displayName: 'Compilar WebAPI com .NET'
+        pool:
+          name: 'win'  # Usando o pool Windows
+        steps:
+          - powershell: |
+              # Baixar e instalar o SDK do .NET 6.0
+              Invoke-WebRequest -Uri https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+              .\dotnet-install.ps1 -Channel 6.0
+
+              # Adicionar o SDK instalado ao PATH
+              $env:DOTNET_ROOT = "$HOME\.dotnet"
+              $env:PATH += ";$env:DOTNET_ROOT"
+
+              # Verificar se o SDK 6.0 foi instalado corretamente
+              dotnet --version
+
+              # Compilar o arquivo de projeto Sample.csproj localizado na raiz do repositório
+              dotnet build $(System.DefaultWorkingDirectory)/Sample.csproj
+              dotnet publish $(System.DefaultWorkingDirectory)/Sample.csproj --configuration Release --output $(Build.ArtifactStagingDirectory)
+            displayName: 'Instalar .NET SDK 6.0 e Compilar WebAPI'
+
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)'
+              artifact: 'drop'
+
+  - stage: Deploy
+    displayName: 'Deploy no IIS'
+    dependsOn: Build
+    jobs:
+      - job: DeployJob
+        displayName: 'Deploy da WebAPI no IIS'
+        pool:
+          name: 'linux'  # Usando o pool Linux para executar o Ansible
+        steps:
+          - task: DownloadPipelineArtifact@2
+            inputs:
+              buildType: 'current'
+              artifactName: 'drop'
+              targetPath: '$(Pipeline.Workspace)/drop'
+
+          - script: |
+              cd ansible  # Adiciona o comando para navegar até o diretório ansible
+              ansible-playbook -i inventory.yaml playbook-deploy-iis.yaml
+            displayName: 'Deploy da aplicação no IIS usando Ansible'
+      - job: NginxSetupJob
+        displayName: 'Configurar Nginx como Proxy Reverso'
+        pool:
+          name: 'linux'  # O Ansible rodará no agente Linux
+        steps:
+          - script: |
+              cd ansible  # Acessar o diretório ansible
+              ansible-playbook -i inventory.yaml playbook-setup-nginx.yaml
+            displayName: 'Executar o Playbook de Configuração do Nginx'

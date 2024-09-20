@@ -1,0 +1,17 @@
+- hosts: iis_server
+  tasks:
+    - name: Instalar IIS
+      win_feature:
+        name: Web-Server
+        state: present
+
+    - name: Copiar aplicação para IIS
+      win_copy:
+        src: "/home/mago/myagent/_work/2/drop"
+        dest: "C:\\inetpub\\wwwroot"
+
+    - name: Reiniciar IIS
+      win_service:
+        name: w3svc
+        state: restarted
+

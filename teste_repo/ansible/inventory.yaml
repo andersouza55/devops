@@ -1,0 +1,17 @@
+all:
+  hosts:
+    iis_server:
+      ansible_host: 40.85.177.201  # Substitua pelo output do Terraform
+      ansible_user: azureuser
+      ansible_password: Password@!!123!
+      ansible_connection: winrm
+      ansible_winrm_transport: ntlm
+      ansible_port: 5985  # Porta padrão para HTTP
+      ansible_winrm_server_cert_validation: ignore  # Ignorar verificação do certificado SSL
+    nginx_server:
+      ansible_host: 4.246.226.193
+      ansible_user: mago
+      ansible_password: Monster@123!!Mago
+      ansible_become: yes
+      ansible_ssh_extra_args: '-o StrictHostKeyChecking=no'
+
